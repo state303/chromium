@@ -27,10 +27,9 @@ jobs:
       - name: 🔬 Test Go with coverage
         run: go test -coverprofile=coverage.out ./... ; go tool cover -func=coverage.out
       - name: 🎢 Upload coverage reports to Codecov
-        run: |
-          curl -Os https://uploader.codecov.io/latest/linux/codecov
-          chmod +x codecov
-          ./codecov -t ${{ secrets.CODECOV_TOKEN }}
+        uses: codecov/codecov-action@v3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
   release:
     runs-on: ubuntu-latest
     needs: test
