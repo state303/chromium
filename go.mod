@@ -1,4 +1,4 @@
-module github.com/state303/browser
+module github.com/state303/chromium
 
 go 1.19
 
