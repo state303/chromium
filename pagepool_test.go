@@ -13,7 +13,7 @@ func TestPagePool_CleanUp(t *testing.T) {
 
 	count := 0
 	for i := 0; i < cap(pool); i++ {
-		pool <- NewPage(b.MustPage(), func() { count++ })
+		pool <- newPage(b.MustPage(), func() { count++ })
 	}
 
 	assert.NotPanics(t, pool.CleanUp)

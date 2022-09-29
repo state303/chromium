@@ -36,10 +36,16 @@ func (b *Browser) PutPage(p *Page) {
 	b.pagePool <- p
 }
 
-// NewBrowserWithProxy returns new browser with given pool size and proxy setup.
-// Note that the pagePoolSize and proxy cannot be changed once generated.
+// NewBrowser returns new browser with given pool size.
+// Note that the pagePoolSize cannot be changed after the initialization.
+func NewBrowser(pagePoolSize int) (*Browser, error) {
+	return NewBrowserWithProxy(pagePoolSize, "")
+}
+
+// NewBrowserWithProxy returns new browser with given pool size and proxy.
+// Note that the pagePoolSize and proxy cannot be changed after the initialization.
 func NewBrowserWithProxy(pagePoolSize int, proxy string) (*Browser, error) {
-	l := launcher.New()
+	l := launcher.New().Leakless(true)
 	if len(proxy) > 0 {
 		l = l.Proxy(proxy)
 	}
@@ -52,15 +58,12 @@ func NewBrowserWithProxy(pagePoolSize int, proxy string) (*Browser, error) {
 
 	wg := &sync.WaitGroup{}
 	for i := 0; i < pagePoolSize; i++ {
-		pool <- NewPage(b.MustPage(), wg.Done)
+		page := newPage(b.MustPage(), wg.Done)
+		page.MustSetViewport(2160, 1440, 0, false)
+		pool <- page
 	}
+
 	wg.Add(pagePoolSize)
 
 	return &Browser{b, wg, pool, l}, nil
-}
-
-// NewBrowser returns new browser with given pool size.
-// Note that the pagePoolSize cannot be changed once generated.
-func NewBrowser(pagePoolSize int) (*Browser, error) {
-	return NewBrowserWithProxy(pagePoolSize, "")
 }
