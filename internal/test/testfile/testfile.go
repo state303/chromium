@@ -8,9 +8,11 @@ const (
 )
 
 var (
-	BlankHTML     = readFile(testHTML + "/blank.html")
-	ItemsHTML     = readFile(testHTML + "/items.html")
-	InputTestHTML = readFile(testHTML + "/input-test.html")
+	BlankHTML         = readFile(testHTML + "/blank.html")
+	ItemsHTML         = readFile(testHTML + "/items.html")
+	InputTestHTML     = readFile(testHTML + "/input-test.html")
+	AlertHTML         = readFile(testHTML + "/alert.html")
+	ClickNavigateHTML = readFile(testHTML + "/click-navigate.html")
 )
 
 func readFile(path string) []byte {

@@ -1,6 +1,7 @@
 package chromium
 
 import (
+	"context"
 	"fmt"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
@@ -34,6 +35,14 @@ func (p *Page) SaveDialog(d *proto.PageJavascriptDialogOpening) {
 	p.dialogs = append(p.dialogs, d)
 }
 
+// replaceAbortErr replaces all abortedErr message into context.Canceled.
+func replaceAbortErr(err error) error {
+	if strings.Contains(err.Error(), abortedError) {
+		return context.Canceled
+	}
+	return err
+}
+
 // TryNavigate is a safe-guarding method of navigation with indefinite retry.
 // Need of this navigation arose when navigation is succeeded with 2XX with blank HTML response.
 // Logic to determine whether the navigation succeeded or not depends on Predicate for given Page.
@@ -41,12 +50,9 @@ func (p *Page) TryNavigate(url string, predicate Predicate[*Page], backoff time.
 	eChan := make(chan error, 1)
 	go func() {
 		defer func() {
-			if pe := recover(); pe != nil {
-				if err, ok := pe.(error); ok {
-					eChan <- err
-				} else {
-					eChan <- fmt.Errorf("%+v", pe)
-				}
+			if pe := recover(); isError(pe) {
+				err, _ := pe.(error)
+				eChan <- replaceAbortErr(err)
 			}
 			defer close(eChan)
 		}()
@@ -74,16 +80,37 @@ func (p *Page) TryNavigate(url string, predicate Predicate[*Page], backoff time.
 	return <-eChan
 }
 
-// TryInput is a conjunction of Page.VisibleElement and *rod.Element's Input function.
+func isError(item any) bool {
+	if item == nil {
+		return false
+	}
+	_, res := item.(error)
+	return res
+}
+
+// TryInput is a conjunction of Page.GetVisibleElement and *rod.Element's Input function.
 // It will propagate any error from subsequent actions by immediately returning that non-nil error.
 // It will return error as nil if the action has been successfully executed.
 func (p *Page) TryInput(selector, text string) error {
-	element, err := p.HasElement(selector)
-	if err != nil {
-		return err
-	}
-	if err = element.Input(text); err != nil {
-		return util.WrapError(err, fmt.Sprintf("failed to write input for %+v", selector))
+	eChan := make(chan error, 1)
+	go func() {
+		defer func() {
+			if pe := recover(); isError(pe) {
+				err, _ := pe.(error)
+				eChan <- err
+			}
+			close(eChan)
+		}()
+		element, err := p.HasElement(selector)
+		if err != nil {
+			eChan <- err
+			return
+		}
+		element.MustSelectAllText().MustInput(text)
+	}()
+
+	if err := <-eChan; err != nil {
+		return util.WrapError(err, fmt.Sprintf("failed write to %+v", selector))
 	}
 	return nil
 }
@@ -100,10 +127,10 @@ func (p *Page) HasElement(selector string) (*rod.Element, error) {
 	return element, nil
 }
 
-// VisibleElement is a shortcut for search and wait for element to be visible (i.e. interact-ready)
+// GetVisibleElement is a shortcut for search and wait for element to be visible (i.e. interact-ready)
 // Any failure from child action will be propagated.
 // Will return an element with no error on success, otherwise will return nil with error for failing reason.
-func (p *Page) VisibleElement(selector string) (el *rod.Element, err error) {
+func (p *Page) GetVisibleElement(selector string) (el *rod.Element, err error) {
 	if el, err = p.HasElement(selector); err != nil {
 		return nil, err
 	} else if err = el.WaitVisible(); err != nil {
@@ -112,9 +139,9 @@ func (p *Page) VisibleElement(selector string) (el *rod.Element, err error) {
 	return el, nil
 }
 
-// ClickNavigateElement clicks an element that is matching the given selector as criteria.
-func (p *Page) ClickNavigateElement(selector string, timeout time.Duration) error {
-	el, err := p.VisibleElement(selector)
+// ClickNavigate clicks an element that is matching the given selector as criteria.
+func (p *Page) ClickNavigate(selector string, timeout time.Duration) error {
+	el, err := p.GetVisibleElement(selector)
 	if err != nil {
 		return err
 	}
@@ -136,51 +163,64 @@ func (p *Page) ClickNavigateElement(selector string, timeout time.Duration) erro
 		}()
 		waitFunc()
 	}()
-
-	timer := time.After(timeout)
-
-	select {
-	case <-waitDone:
-		return nil
-	case e := <-clickFail:
-		return e
-	case <-timer:
-		return fmt.Errorf("navigation triggered by element click has been timeout")
+	for {
+		select {
+		case <-waitDone:
+			return nil
+		case e := <-clickFail:
+			if e != nil {
+				return e
+			}
+		case <-time.After(timeout):
+			return fmt.Errorf("timeout for click navigation")
+		}
 	}
 }
 
-// WaitJSObjectFor forces the page to await for specified JavaScript Object to be loaded to given page, for specified time duration.
-// It will wait for each depth for the name, separated by dot delimiter.
-func (p *Page) WaitJSObjectFor(name string, timeout time.Duration) error {
-	timer, done := time.After(timeout), make(chan struct{}, 1)
+// WaitJSObjectFor enforces this page to await for specified JavaScript Object to be loaded to given page,
+// for specified time duration. It will wait for the item by each depth for the name by dot delimiter.
+func (p *Page) WaitJSObjectFor(objName string, timeout time.Duration) error {
+	timer, errChan, doneChan := time.After(timeout), make(chan error, 1), make(chan struct{}, 1)
 	go func() {
-		defer close(done)
+		defer close(doneChan)
+		defer close(errChan)
 		due := time.Now().Add(timeout) // set due for timeout setting
-		items := strings.Split(name, ".")
+		items := strings.Split(objName, ".")
 		for i := range items { // check each depth as well as checking due on each retry attempt
 			if i > 0 {
 				items[i] = items[i-1] + "." + items[i] // only refer last item if not the first item
 			}
-			js := fmt.Sprintf(`() => typeof %+v !== "undefined"`, items[i]) // run through console eval func.
+			js := fmt.Sprintf(`() => typeof %+v !== 'undefined'`, items[i]) // run through console eval func.
 			for {
-				if time.Now().After(due) { // in case of timeout, we do not send done signal
+				if time.Now().After(due) { // in case of timeout, we do not send doneChan signal
 					return
 				}
-				if !p.MustEval(js).Bool() { // found
+				obj, err := p.Eval(js)
+				if err != nil {
+					errChan <- err
+					return
+				}
+				if obj.Value.Bool() { // found
 					time.Sleep(time.Millisecond * 100)
 					break
 				}
 			}
 		}
-		done <- struct{}{} // success
+		doneChan <- struct{}{} // success
 	}()
 
 	// evaluate which one comes first
-	select {
-	case <-timer: //on failure
-		return fmt.Errorf("failed to observe javascript object %+v for %+v", name, timeout)
-	case <-done: // on success
-		return nil
+	for {
+		select {
+		case err := <-errChan:
+			if err != nil {
+				return err
+			}
+		case <-timer: // on failure
+			return fmt.Errorf("failed to observe javascript object %+v for %+v", objName, timeout)
+		case <-doneChan: // on success
+			return nil
+		}
 	}
 }
 

@@ -5,7 +5,6 @@ import (
 	"github.com/state303/chromium/internal/test/testfile"
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"testing"
 	"time"
 )
@@ -34,20 +33,14 @@ func NewServer(h HandleFunc) *TestServer {
 	return server
 }
 
-func rotater[T any](items ...T) func() T {
-	idx, l := 0, &sync.Mutex{}
-	max := len(items) - 1
+func rotate[T any](items ...T) func() T {
+	queue := make(chan T, len(items))
+	for _, item := range items {
+		queue <- item
+	}
 	return func() T {
-		l.Lock()
-		defer l.Unlock()
-		item := items[idx]
-		if max > 0 {
-			if idx < max {
-				idx++
-			} else {
-				idx = 0
-			}
-		}
+		item := <-queue
+		queue <- item
 		return item
 	}
 }
@@ -57,9 +50,9 @@ func rotater[T any](items ...T) func() T {
 func WithRotatingResponses(t *testing.T, payload ...[]byte) *TestServer {
 	var getPayload func() []byte
 	if payload == nil || len(payload) == 0 {
-		getPayload = rotater(testfile.BlankHTML)
+		getPayload = rotate(testfile.BlankHTML)
 	} else {
-		getPayload = rotater(payload...)
+		getPayload = rotate(payload...)
 	}
 	return NewServer(func(requests []*HttpRequest, w http.ResponseWriter, r *http.Request) {
 		if err := writeResponse(w, getPayload()); err != nil {

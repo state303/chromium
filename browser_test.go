@@ -84,11 +84,7 @@ func Test_GetPage_Returns_When_Page_Is_Back_To_Pool(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		g.Go(func() error {
 			p := b.GetPage()
-			defer func() {
-				time.Sleep(time.Millisecond * 30)
-				b.PutPage(p)
-				reduceCount()
-			}()
+			defer time.AfterFunc(time.Millisecond*30, func() { b.PutPage(p); reduceCount() })
 			addCount()
 			setMaxCount()
 			if getMaxCount() > 5 {

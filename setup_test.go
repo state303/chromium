@@ -3,6 +3,7 @@ package chromium
 import (
 	"github.com/state303/chromium/internal/test/testfile"
 	"github.com/state303/chromium/internal/test/testserver"
+	"sync"
 	"testing"
 )
 
@@ -16,16 +17,19 @@ func PrepareBrowser(t *testing.T, pagePoolSize int) *Browser {
 	return b
 }
 
-func setupParallel(t *testing.T, payload ...[]byte) (*Browser, *Page, *testserver.TestServer) {
+var m = &sync.Mutex{}
+
+// setup test for general test purpose that removes all the boilerplate.
+func setup(t *testing.T, payload ...[]byte) (*Browser, *Page, *testserver.TestServer) {
 	t.Parallel()
 	b := PrepareBrowser(t, 1)
 	p := b.GetPage()
 	t.Cleanup(func() { b.PutPage(p); b.CleanUp() })
-
 	var s *testserver.TestServer
 	if payload == nil || len(payload) == 0 {
 		payload = [][]byte{testfile.BlankHTML}
 	}
+
 	s = testserver.WithRotatingResponses(t, payload...)
 	t.Cleanup(s.Close)
 	return b, p, s
