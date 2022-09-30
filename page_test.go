@@ -9,6 +9,7 @@ import (
 	"github.com/state303/chromium/internal/test/testserver"
 	"github.com/stretchr/testify/assert"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -252,7 +253,7 @@ func Test_WaitJSObjectFor_Returns_Err_When_Context_Canceled(t *testing.T) {
 func Test_WaitJSObjectFor_Returns_Err_When_Timeout(t *testing.T) {
 	_, p, s := setup(t, testfile.BlankHTML)
 	p.MustNavigate(s.URL)
-	err := p.WaitJSObjectFor("test", time.Millisecond*10)
+	err := p.WaitJSObjectFor("test", time.Millisecond)
 	assert.ErrorIs(t, err, timeout)
 	err = p.WaitJSObjectFor("test", time.Duration(0))
 	assert.ErrorIs(t, err, timeout)
@@ -274,4 +275,67 @@ func Test_WaitJSObjectFor_Waits_Until_Given_Object_Tree_Is_Defined(t *testing.T)
 	begin := time.Now()
 	assert.NoError(t, p.WaitJSObjectFor(objName, time.Second))
 	assert.Greater(t, time.Since(begin), time.Millisecond*500)
+}
+
+func Test_WaitJSObject_Returns_Err_When_Context_Canceled(t *testing.T) {
+	_, p, _ := setup(t, testfile.BlankHTML)
+	p.CleanUp()
+	err := p.WaitJSObject("test")
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
+func Test_WaitJSObject_Returns_No_Err_When_ObjName_Is_Empty(t *testing.T) {
+	_, p, s := setup(t, testfile.BlankHTML)
+	p.MustNavigate(s.URL)
+	err := p.WaitJSObject("test")
+	assert.Error(t, err)
+}
+
+func Test_WaitJSObject_Waits_Until_Given_Object_Tree_Is_Defined(t *testing.T) {
+	_, p, _ := setup(t, testfile.BlankHTML)
+	objName := "first.second.third"
+	createJSObject(p, objName, time.Millisecond*500)
+	begin := time.Now()
+	assert.NoError(t, p.WaitJSObject(objName))
+	assert.Greater(t, time.Since(begin), time.Millisecond*500)
+}
+
+// createJSObject is a helper function that creates multi-level javascript object by interval.
+func createJSObject(page *Page, name string, after time.Duration) {
+	if len(name) == 0 {
+		return
+	}
+	objects := strings.Split(name, ".")
+	size := len(objects)
+
+	for i := 1; i < size; i++ {
+		objects[i] = objects[i-1] + "." + objects[i]
+	}
+
+	interval := getInterval(after.Abs(), size)
+	delay := interval
+
+	for i := 0; i < size; i++ {
+		objName := objects[i]
+		time.AfterFunc(delay, func() {
+			page.MustEval(fmt.Sprintf("() => %+v = {}", objName))
+		})
+		delay += interval
+	}
+}
+
+// getInterval returns duration that is divided by n.
+// The duration will always be shifted into absolute value, or 0 if duration from param is zero value.
+// Also, if given n is lower than 2, this function will return duration as-is.
+func getInterval(d time.Duration, n int) time.Duration {
+	if d < 0 {
+		d = d.Abs()
+	} else if d == 0 { // duration
+		return 0
+	}
+	if n <= 1 {
+		return d
+	}
+	return time.Duration(d.Nanoseconds() / int64(n))
 }

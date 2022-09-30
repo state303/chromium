@@ -20,6 +20,10 @@ type Page struct {
 	dialogs []*proto.PageJavascriptDialogOpening
 }
 
+func (p *Page) WaitJSObject(objName string) error {
+	return p.WaitJSObjectFor(objName, time.Second*5)
+}
+
 // CleanUp calls page done once and only once, signalling Browser such that the page is actually closed.
 func (p *Page) CleanUp() {
 	p.once.Do(p.done)
@@ -200,12 +204,12 @@ func (p *Page) WaitJSObjectFor(objName string, until time.Duration) error {
 			if i > 0 {
 				items[i] = items[i-1] + "." + items[i] // only refer last item if not the first item
 			}
-			js := fmt.Sprintf(`() => typeof %+v !== 'undefined'`, items[i]) // run through console eval func.
+			script := fmt.Sprintf(`() => typeof %+v !== 'undefined'`, items[i]) // run through console
 			for {
 				if time.Since(begin) > until { // in case of until, we do not send doneChan signal
 					return
 				}
-				obj, err := p.Eval(js)
+				obj, err := p.Eval(script)
 				if err != nil {
 					errChan <- err
 					return
@@ -232,13 +236,6 @@ func (p *Page) WaitJSObjectFor(objName string, until time.Duration) error {
 			return nil
 		}
 	}
-}
-
-// WaitJSObject forces the page to await for specified JavaScript Object to be loaded to given page.
-// It will delegate the check for Page.WaitJSObjectFor with fixed amount of time and that wait duration can be changed anytime (but still, greater than 10 second at least.)
-// If you need specific, consistent time window, use Page.WaitJSObjectFor instead.
-func (p *Page) WaitJSObject(name string) error {
-	return p.WaitJSObjectFor(name, time.Second*30)
 }
 
 // newPage returns a page,
