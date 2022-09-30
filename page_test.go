@@ -2,7 +2,6 @@ package chromium
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/state303/chromium/internal/test/testfile"
@@ -47,13 +46,6 @@ func Test_HasElement_Returns_Err_When_Selector_Not_Matched(t *testing.T) {
 	assert.Error(t, err, "expected error when selector has no matching element")
 	assert.ErrorIs(t, err, ElementMissing)
 	assert.ErrorContains(t, err, selector)
-}
-
-func Test_replaceAbortErr_Replaces_To_Context_Cancel(t *testing.T) {
-	err := errors.New(abortedError)
-	err = replaceAbortErr(err)
-	assert.ErrorIs(t, err, context.Canceled)
-	assert.NotContains(t, err.Error(), abortedError)
 }
 
 func Test_TryNavigate_Waits_With_Given_Backoff(t *testing.T) {
@@ -289,7 +281,7 @@ func Test_WaitJSObject_Returns_No_Err_When_ObjName_Is_Empty(t *testing.T) {
 	_, p, s := setup(t, testfile.BlankHTML)
 	p.MustNavigate(s.URL)
 	err := p.WaitJSObject("test")
-	assert.Error(t, err)
+	assert.NoError(t, err)
 }
 
 func Test_WaitJSObject_Waits_Until_Given_Object_Tree_Is_Defined(t *testing.T) {

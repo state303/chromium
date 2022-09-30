@@ -1,11 +1,9 @@
 package chromium
 
 import (
-	"context"
 	"fmt"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
-	"golang.org/x/sync/errgroup"
 	"strings"
 	"sync"
 	"time"
@@ -38,14 +36,6 @@ func (p *Page) SaveDialog(d *proto.PageJavascriptDialogOpening) {
 	p.dialogs = append(p.dialogs, d)
 }
 
-// replaceAbortErr replaces all abortedErr message into context.Canceled.
-func replaceAbortErr(err error) error {
-	if err != nil && strings.Contains(err.Error(), abortedError) {
-		return context.Canceled
-	}
-	return err
-}
-
 // TryNavigate is a safe-guarding method of navigation with indefinite retry.
 // Need of this navigation arose when navigation is succeeded with 2XX with blank HTML response.
 // Logic to determine whether the navigation succeeded or not depends on Predicate for given Page.
@@ -55,7 +45,7 @@ func (p *Page) TryNavigate(url string, predicate Predicate[*Page], backoff time.
 		defer func() {
 			if pe := recover(); isError(pe) {
 				err, _ := pe.(error)
-				eChan <- replaceAbortErr(err)
+				eChan <- replaceAbortedError(err)
 			}
 			defer close(eChan)
 		}()
@@ -64,15 +54,9 @@ func (p *Page) TryNavigate(url string, predicate Predicate[*Page], backoff time.
 
 	tryNavigate:
 		wait := p.MustWaitNavigation()
-		g := new(errgroup.Group)
-		g.Go(func() error {
-			wait()
-			return nil
-		})
-
+		done := make(chan struct{}, 1)
+		go func() { defer close(done); wait(); done <- struct{}{} }()
 		p.MustNavigate(url)
-		_ = g.Wait()
-
 		if !predicate(p) {
 			delay += backoff
 			time.Sleep(delay)
@@ -100,7 +84,7 @@ func (p *Page) TryInput(selector, text string) error {
 		defer func() {
 			if pe := recover(); isError(pe) {
 				err, _ := pe.(error)
-				eChan <- err
+				eChan <- replaceAbortedError(err)
 			}
 			close(eChan)
 		}()
@@ -111,7 +95,7 @@ func (p *Page) TryInput(selector, text string) error {
 		}
 		element.MustSelectAllText().MustInput(text)
 	}()
-	return replaceAbortErr(<-eChan)
+	return replaceAbortedError(<-eChan)
 }
 
 // HasElement checks if any element matching the given selector.

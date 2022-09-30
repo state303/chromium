@@ -26,6 +26,9 @@ func replaceAbortedError(err error) error {
 	if err == nil {
 		return nil
 	}
+	if isKnownError(err) {
+		return err
+	}
 	if strings.Contains(err.Error(), "ABORTED") {
 		return context.Canceled
 	}
