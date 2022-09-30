@@ -211,7 +211,7 @@ func Test_ClickNavigate_Returns_Err_When_Fail_Wait_Navigate(t *testing.T) {
 func Test_ClickNavigate_Returns_Err_When_Timeout(t *testing.T) {
 	_, p, s := setup(t, testfile.ItemsHTML)
 	p.MustNavigate(s.URL)
-	err := p.ClickNavigate("li", time.Millisecond*10)
+	err := p.ClickNavigate("li", time.Millisecond)
 	assert.ErrorContains(t, err, "timeout")
 }
 
