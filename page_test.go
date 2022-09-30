@@ -196,17 +196,22 @@ func Test_ClickNavigate_Returns_Err_When_Fail_Wait_Visible(t *testing.T) {
 
 func Test_ClickNavigate_Returns_Err_When_Fail_Wait_Navigate(t *testing.T) {
 	delay := time.Second
-	_, p, s1 := setup(t, testfile.ItemsHTML)
+	// prepare servers
+	_, p, s1 := setup(t, testfile.ClickNavigateHTML)
 	s2 := testserver.NewServer(func(rs []*testserver.HttpRequest, w http.ResponseWriter, r *http.Request) {
-		time.AfterFunc(delay, func() { _, _ = w.Write(testfile.ItemsHTML) })
+		time.AfterFunc(delay, func() { _, _ = w.Write(testfile.BlankHTML) })
 	})
 	t.Cleanup(s2.Close)
 
+	// prepare attributes for click and redirect
 	js := fmt.Sprintf("() => this.setAttribute('href','%+v')", s2.URL)
-	p.MustNavigate(s1.URL).MustElement("li").MustEval(js)
+	p.MustNavigate(s1.URL).MustElement("a").MustEval(js)
 
-	time.AfterFunc(time.Millisecond*50, p.CleanUp)
-	err := p.ClickNavigate("li", time.Second)
+	time.AfterFunc(time.Millisecond*100, p.CleanUp)
+	err := p.ClickNavigate("a", time.Second)
+
+	assert.Equal(t, 1, len(s1.Requests()))
+	assert.Equal(t, 1, len(s2.Requests()))
 	assert.Error(t, err, context.Canceled)
 }
 
@@ -242,4 +247,31 @@ func Test_WaitJSObjectFor_Returns_Err_When_Context_Canceled(t *testing.T) {
 	err := p.WaitJSObjectFor("test", time.Second)
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
+}
+
+func Test_WaitJSObjectFor_Returns_Err_When_Timeout(t *testing.T) {
+	_, p, s := setup(t, testfile.BlankHTML)
+	p.MustNavigate(s.URL)
+	err := p.WaitJSObjectFor("test", time.Millisecond*50)
+	assert.ErrorIs(t, err, timeout)
+	err = p.WaitJSObjectFor("test", time.Duration(0))
+	assert.ErrorIs(t, err, timeout)
+}
+
+func Test_WaitJSObjectFor_Returns_No_Err_When_ObjName_Is_Empty(t *testing.T) {
+	_, p, _ := setup(t, testfile.BlankHTML)
+	assert.NoError(t, p.WaitJSObjectFor("", 0))
+}
+
+func Test_WaitJSObjectFor_Waits_Until_Given_Object_Tree_Is_Defined(t *testing.T) {
+	_, p, _ := setup(t, testfile.BlankHTML)
+	objName := "first.second.third"
+
+	time.AfterFunc(time.Millisecond*50, func() { p.MustEval("() => first = {}") })
+	time.AfterFunc(time.Millisecond*300, func() { p.MustEval("() => first.second = {}") })
+	time.AfterFunc(time.Millisecond*500, func() { p.MustEval("() => first.second.third = {}") })
+
+	begin := time.Now()
+	assert.NoError(t, p.WaitJSObjectFor(objName, time.Second))
+	assert.Greater(t, time.Since(begin), time.Millisecond*500)
 }

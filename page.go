@@ -2,6 +2,7 @@ package chromium
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
@@ -177,14 +178,23 @@ func (p *Page) ClickNavigate(selector string, timeout time.Duration) error {
 	}
 }
 
+var timeout = errors.New("timeout")
+
 // WaitJSObjectFor enforces this page to await for specified JavaScript Object to be loaded to given page,
 // for specified time duration. It will wait for the item by each depth for the name by dot delimiter.
-func (p *Page) WaitJSObjectFor(objName string, timeout time.Duration) error {
-	timer, errChan, doneChan := time.After(timeout), make(chan error, 1), make(chan struct{}, 1)
+func (p *Page) WaitJSObjectFor(objName string, until time.Duration) error {
+	if len(objName) == 0 {
+		return nil
+	} else if until == 0 {
+		return timeout
+	}
+
+	timer, errChan, doneChan := time.After(until), make(chan error, 1), make(chan struct{}, 1)
+
 	go func() {
 		defer close(doneChan)
 		defer close(errChan)
-		due := time.Now().Add(timeout) // set due for timeout setting
+		begin := time.Now()
 		items := strings.Split(objName, ".")
 		for i := range items { // check each depth as well as checking due on each retry attempt
 			if i > 0 {
@@ -192,7 +202,7 @@ func (p *Page) WaitJSObjectFor(objName string, timeout time.Duration) error {
 			}
 			js := fmt.Sprintf(`() => typeof %+v !== 'undefined'`, items[i]) // run through console eval func.
 			for {
-				if time.Now().After(due) { // in case of timeout, we do not send doneChan signal
+				if time.Since(begin) > until { // in case of until, we do not send doneChan signal
 					return
 				}
 				obj, err := p.Eval(js)
@@ -217,7 +227,7 @@ func (p *Page) WaitJSObjectFor(objName string, timeout time.Duration) error {
 				return err
 			}
 		case <-timer: // on failure
-			return fmt.Errorf("failed to observe javascript object %+v for %+v", objName, timeout)
+			return timeout
 		case <-doneChan: // on success
 			return nil
 		}
