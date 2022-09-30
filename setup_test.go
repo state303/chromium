@@ -3,7 +3,6 @@ package chromium
 import (
 	"github.com/state303/chromium/internal/test/testfile"
 	"github.com/state303/chromium/internal/test/testserver"
-	"sync"
 	"testing"
 )
 
@@ -16,8 +15,6 @@ func PrepareBrowser(t *testing.T, pagePoolSize int) *Browser {
 	}
 	return b
 }
-
-var m = &sync.Mutex{}
 
 // setup test for general test purpose that removes all the boilerplate.
 func setup(t *testing.T, payload ...[]byte) (*Browser, *Page, *testserver.TestServer) {
