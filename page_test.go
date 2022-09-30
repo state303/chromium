@@ -280,7 +280,7 @@ func Test_WaitJSObject_Returns_Err_When_Context_Canceled(t *testing.T) {
 func Test_WaitJSObject_Returns_No_Err_When_ObjName_Is_Empty(t *testing.T) {
 	_, p, s := setup(t, testfile.BlankHTML)
 	p.MustNavigate(s.URL)
-	err := p.WaitJSObject("test")
+	err := p.WaitJSObject("")
 	assert.NoError(t, err)
 }
 
