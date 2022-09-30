@@ -45,7 +45,7 @@ func Test_HasElement_Returns_Err_When_Selector_Not_Matched(t *testing.T) {
 	el, err := p.HasElement(selector)
 	assert.Nil(t, el, "expected no element when there is no such element")
 	assert.Error(t, err, "expected error when selector has no matching element")
-	assert.ErrorContains(t, err, "failed")
+	assert.ErrorIs(t, err, ElementMissing)
 	assert.ErrorContains(t, err, selector)
 }
 
@@ -108,7 +108,7 @@ func Test_TryInput_Returns_Err_When_Page_Already_Closed(t *testing.T) {
 	p.CleanUp()
 	err := p.TryInput(sel, "test")
 	assert.Error(t, err, "expected error when context closed")
-	assert.ErrorContains(t, err, context.Canceled.Error(), "expected error contains context canceled")
+	assert.ErrorIs(t, err, context.Canceled, "expected error is context canceled")
 }
 
 func Test_TryInput_Returns_Err_When_Page_Input_Failed(t *testing.T) {
@@ -153,11 +153,11 @@ func Test_GetVisibleElement_Returns_Err_When_No_Element_Found(t *testing.T) {
 	_, p, s := setup(t, testfile.BlankHTML)
 	p.MustNavigate(s.URL)
 	sel := "a > li"
-	el, err := p.GetVisibleElement(sel)
+	el, err := p.WaitVisibleElement(sel)
 	assert.Nil(t, el, "expected no element when element is missing")
 	assert.Error(t, err, "expected error when selector does not match")
 	assert.ErrorContains(t, err, sel)
-	assert.ErrorContains(t, err, "fail")
+	assert.ErrorIs(t, err, ElementMissing)
 }
 
 func Test_GetVisibleElement_Returns_Err_When_Context_Cancel(t *testing.T) {
@@ -165,7 +165,7 @@ func Test_GetVisibleElement_Returns_Err_When_Context_Cancel(t *testing.T) {
 	p.MustNavigate(s.URL)
 	p.MustElement("body").MustEval("() => this.setAttribute('hidden', 'true')")
 	go func() { time.Sleep(time.Millisecond * 50); p.CleanUp() }()
-	el, err := p.GetVisibleElement("body")
+	el, err := p.WaitVisibleElement("body")
 	assert.Nil(t, el)
 	assert.Error(t, err)
 	assert.ErrorContains(t, err, "body")
@@ -181,7 +181,7 @@ func Test_GetVisibleElement_Waits_Element_Visible(t *testing.T) {
 	time.AfterFunc(delay, func() { body.MustEval("() => this.removeAttribute('hidden', 'false')") })
 
 	begin := time.Now()
-	el, err := p.GetVisibleElement("body")
+	el, err := p.WaitVisibleElement("body")
 
 	assert.GreaterOrEqual(t, time.Since(begin), delay, "expected wait time to be at least %+v", delay)
 	assert.NoError(t, err)
@@ -254,9 +254,9 @@ func Test_WaitJSObjectFor_Returns_Err_When_Timeout(t *testing.T) {
 	_, p, s := setup(t, testfile.BlankHTML)
 	p.MustNavigate(s.URL)
 	err := p.WaitJSObjectFor("test", time.Millisecond)
-	assert.ErrorIs(t, err, timeout)
+	assert.ErrorIs(t, err, TaskTimeout)
 	err = p.WaitJSObjectFor("test", time.Duration(0))
-	assert.ErrorIs(t, err, timeout)
+	assert.ErrorIs(t, err, TaskTimeout)
 }
 
 func Test_WaitJSObjectFor_Returns_No_Err_When_ObjName_Is_Empty(t *testing.T) {

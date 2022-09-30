@@ -2,11 +2,9 @@ package chromium
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
-	util "github.com/state303/chromium/internal/test/testutil"
 	"golang.org/x/sync/errgroup"
 	"strings"
 	"sync"
@@ -42,7 +40,7 @@ func (p *Page) SaveDialog(d *proto.PageJavascriptDialogOpening) {
 
 // replaceAbortErr replaces all abortedErr message into context.Canceled.
 func replaceAbortErr(err error) error {
-	if strings.Contains(err.Error(), abortedError) {
+	if err != nil && strings.Contains(err.Error(), abortedError) {
 		return context.Canceled
 	}
 	return err
@@ -93,7 +91,7 @@ func isError(item any) bool {
 	return res
 }
 
-// TryInput is a conjunction of Page.GetVisibleElement and *rod.Element's Input function.
+// TryInput is a conjunction of Page.WaitVisibleElement and *rod.Element's Input function.
 // It will propagate any error from subsequent actions by immediately returning that non-nil error.
 // It will return error as nil if the action has been successfully executed.
 func (p *Page) TryInput(selector, text string) error {
@@ -113,11 +111,7 @@ func (p *Page) TryInput(selector, text string) error {
 		}
 		element.MustSelectAllText().MustInput(text)
 	}()
-
-	if err := <-eChan; err != nil {
-		return util.WrapError(err, fmt.Sprintf("failed write to %+v", selector))
-	}
-	return nil
+	return replaceAbortErr(<-eChan)
 }
 
 // HasElement checks if any element matching the given selector.
@@ -125,28 +119,28 @@ func (p *Page) TryInput(selector, text string) error {
 func (p *Page) HasElement(selector string) (*rod.Element, error) {
 	found, element, err := p.Has(selector)
 	if err != nil {
-		return nil, util.WrapError(err, fmt.Sprintf("failed to locate element %+v", selector))
+		return nil, err
 	} else if !found {
-		return nil, fmt.Errorf("failed to locate element %+v", selector)
+		return nil, wrap(ElementMissing, selector)
 	}
 	return element, nil
 }
 
-// GetVisibleElement is a shortcut for search and wait for element to be visible (i.e. interact-ready)
+// WaitVisibleElement is a shortcut for search and wait for element to be visible (i.e. interact-ready)
 // Any failure from child action will be propagated.
 // Will return an element with no error on success, otherwise will return nil with error for failing reason.
-func (p *Page) GetVisibleElement(selector string) (el *rod.Element, err error) {
+func (p *Page) WaitVisibleElement(selector string) (el *rod.Element, err error) {
 	if el, err = p.HasElement(selector); err != nil {
 		return nil, err
 	} else if err = el.WaitVisible(); err != nil {
-		return nil, util.WrapError(err, fmt.Sprintf("failed waiting element %+v to be visible", selector))
+		return nil, wrap(WaitFailed, selector)
 	}
 	return el, nil
 }
 
 // ClickNavigate clicks an element that is matching the given selector as criteria.
 func (p *Page) ClickNavigate(selector string, timeout time.Duration) error {
-	el, err := p.GetVisibleElement(selector)
+	el, err := p.WaitVisibleElement(selector)
 	if err != nil {
 		return err
 	}
@@ -157,7 +151,7 @@ func (p *Page) ClickNavigate(selector string, timeout time.Duration) error {
 	go func(elem *rod.Element) {
 		defer close(clickFail)
 		if clickErr := elem.Click(proto.InputMouseButtonLeft); clickErr != nil {
-			clickFail <- util.WrapError(clickErr, fmt.Sprintf("failed to click element %+v", selector))
+			clickFail <- wrap(ClickFailed, selector)
 		}
 	}(el)
 
@@ -177,12 +171,10 @@ func (p *Page) ClickNavigate(selector string, timeout time.Duration) error {
 				return e
 			}
 		case <-time.After(timeout):
-			return fmt.Errorf("timeout for click navigation")
+			return TaskTimeout
 		}
 	}
 }
-
-var timeout = errors.New("timeout")
 
 // WaitJSObjectFor enforces this page to await for specified JavaScript Object to be loaded to given page,
 // for specified time duration. It will wait for the item by each depth for the name by dot delimiter.
@@ -190,7 +182,7 @@ func (p *Page) WaitJSObjectFor(objName string, until time.Duration) error {
 	if len(objName) == 0 {
 		return nil
 	} else if until == 0 {
-		return timeout
+		return TaskTimeout
 	}
 
 	timer, errChan, doneChan := time.After(until), make(chan error, 1), make(chan struct{}, 1)
@@ -231,7 +223,7 @@ func (p *Page) WaitJSObjectFor(objName string, until time.Duration) error {
 				return err
 			}
 		case <-timer: // on failure
-			return timeout
+			return TaskTimeout
 		case <-doneChan: // on success
 			return nil
 		}
